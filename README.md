@@ -15,11 +15,11 @@ The cfnResponse module has recently been impacted by [removal of the vendored ve
 
 ## Instructions
 
-1. Run package.sh to package the code and dependencies
-1. Upload the securityhub_enabler.zip file to an S3 bucket, note the bucket name
+1. Run package.sh to package the code and dependencies.
+1. Upload the securityhub_enabler.zip file to an S3 bucket, note the bucket name.
 1. Gather other information for deployment parameters:
 
     - In AWS Organizations, look on the Settings page for the Organization ID.  It will be o-xxxxxxxxxx
     - In AWS Organizations, look on the Accounts page for the Audit account ID.
 
-1. Launch the CloudFormation stack by clicking [![Launch Stack](https://cdn.rawgit.com/buildkite/cloudformation-launch-stack-button-svg/master/launch-stack.svg)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=SecurityHubEnabler&templateURL=https://cf-templates-1v67z7l4jhchq-us-east-1.s3.amazonaws.com/aws-control-tower-securityhub-enabler.template)
+1. Launch the CloudFormation stack using the aws-control-tower-securityhub-enabler.template file as the source.

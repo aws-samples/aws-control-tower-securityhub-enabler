@@ -1,0 +1,238 @@
+# Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: MIT-0
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates an SNS topic and Lambda function to enable SecurityHub in the Security account.
+Parameters:
+  SecurityAccountId:
+    Type: String
+    Description: Which account will be the SecurityHub Master?  Enter the AWS account ID. (This is generally the AWS Control Tower Audit account)
+    AllowedPattern: '^[0-9]{12}$'
+    ConstraintDescription: >
+      The Security Account ID must be a 12 character string.
+    MinLength: 12
+    MaxLength: 12
+  OrganizationId:
+    Type: String
+    Description: AWS Organizations ID for the Control Tower. This is used to restrict permissions to least privilege.
+    MinLength: 12
+    MaxLength: 12
+    AllowedPattern: '^[o][\-][a-z0-9]{10}$'
+    ConstraintDescription: >
+      The Org Id must be a 12 character string starting with o- and followed by 10 lower case alphanumeric characters
+  RegionFilter:
+    Type: String
+    Description: Should Security Hub be enabled for all Security Hub supported regions, or only Control Tower supported regions
+    AllowedValues: 
+      - SecurityHub
+      - ControlTower
+    Default: ControlTower
+  OUFilter:
+    Type: String
+    Description: Should Security Hub be enabled for all accounts, or only accounts Control Tower Managed OUs?
+    AllowedValues:
+      - All
+      - ControlTower
+    Default: ControlTower
+  S3SourceBucket:
+    Type: String
+    Default: cf-templates-1v67z7l4jhchq-us-east-1
+    Description: S3 bucket containing securityhub_enabler.zip file for SecurityHubEnabler lambda function
+  ComplianceFrequency:
+    Type: Number
+    Default: "7"
+    Description: Frequency (in days between 1 and 30, default is 7) to check organizational compliance
+    MinValue: 1
+    MaxValue: 30
+    ConstraintDescription: >
+      Compliance Frequency must be a number between 1 and 30, inclusive.
+  RoleToAssume:
+    Type: String
+    Default: 'AWSControlTowerExecution'
+    Description: >
+      IAM role to be assumed in child accounts to enable SecurityHub. The default is AWSControlTowerExecution for a Control Tower environment.
+
+Resources:
+  SecurityHubEnablerRole: 
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "lambda.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies: 
+      - PolicyName: SecurityHubEnablerPolicy
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Action:
+            - organizations:ListAccounts
+            - organizations:DescribeAccount
+            - organizations:ListPoliciesForTarget
+            - organizations:ListParents
+            Resource: '*'
+            Condition:
+              StringEquals:
+                "aws:PrincipalOrgId": !Ref OrganizationId
+          - Effect: Allow
+            Action:
+            - sts:AssumeRole
+            Resource: !Sub 'arn:aws:iam::*:role/${RoleToAssume}'
+            Condition:
+              StringEquals:
+                "aws:PrincipalOrgId": !Ref OrganizationId
+          - Effect: Allow
+            Action:
+            - sns:Publish
+            Resource: !Ref SecurityHubEnablerTopic
+          - Effect: Allow
+            Action:
+              - 'logs:CreateLogGroup'
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource: 
+              -  !Sub 'arn:aws:logs:us-east-1:${AWS::AccountId}:log-group:/aws/lambda/*'
+          - Effect: Allow
+            Action:
+              - 'sts:AssumeRole'
+            Resource: !Sub 'arn:aws:iam::*:role/${RoleToAssume}'
+          - Effect: Allow
+            Action:
+              - 'CloudFormation:ListStackInstances'
+            Resource: !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stackset/AWSControlTowerBP-BASELINE-CLOUDWATCH:*'
+          - Effect: Allow
+            Action:
+              - 'iam:CreateServiceLinkedRole'
+              - 'securityhub:AcceptInvitation'
+              - 'securityhub:BatchEnableStandards'
+              - 'securityhub:CreateMembers'
+              - 'securityhub:DisassociateMembers'
+              - 'securityhub:DisableSecurityHub'
+              - 'securityhub:DeleteMembers'
+              - 'securityhub:EnableSecurityHub'
+              - 'securityhub:GetEnabledStandards'
+              - 'securityhub:GetFindings'
+              - 'securityhub:GetMasterAccount'
+              - 'securityhub:InviteMembers'
+              - 'securityhub:ListInvitations'
+              - 'securityhub:ListMembers'
+            Resource: '*'
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W11
+            reason: "Organizations doesn't have arns, so we have to use an asterisk in the policy"
+
+  SecurityHubEnablerLambda: 
+    Type: "AWS::Lambda::Function"
+    DependsOn: 
+      - SecurityHubEnablerRole
+    Properties: 
+      Handler: "securityhub_enabler.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${SecurityHubEnablerRole}"
+      Code: 
+        S3Bucket: !Ref S3SourceBucket
+        S3Key: securityhub_enabler.zip
+      Runtime: "python3.7"
+      MemorySize: 256
+      Timeout: 900
+      # ###################################################################
+      ReservedConcurrentExecutions: 2
+      # ###################################################################
+      Environment:
+        Variables:
+            ou_filter: !Ref OUFilter
+            region_filter: !Ref RegionFilter
+            assume_role: !Sub ${RoleToAssume}
+            ct_master_account: !Sub ${AWS::AccountId}
+            sh_master_account: !Sub ${SecurityAccountId}
+            topic: !Ref SecurityHubEnablerTopic
+
+  SecurityHubEnablerTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: SecurityHub_Enabler
+      TopicName: SecurityHubEnablerTopic
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W47
+            reason: "Not sensitive data, doesn't need encryption with kms"
+
+  SecurityHubEnablerTopicLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt SecurityHubEnablerLambda.Arn
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref SecurityHubEnablerTopic
+
+  SecurityHubEnablerSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint: !GetAtt SecurityHubEnablerLambda.Arn
+      Protocol: lambda
+      TopicArn: !Ref SecurityHubEnablerTopic
+
+  ScheduledRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "SecurityHubScheduledComplianceTrigger"
+      ScheduleExpression: !Sub "rate(${ComplianceFrequency} days)"
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: !GetAtt SecurityHubEnablerLambda.Arn
+          Id: "DailyInvite"
+
+  LifeCycleRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "SecurityHubLifeCycleTrigger"
+      EventPattern:
+        source: 
+          - "aws.controltower"
+        detail-type:
+          - "AWS Service Event via CloudTrail"
+        detail:
+          eventName:
+            - "CreateManagedAccount"
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: !GetAtt SecurityHubEnablerLambda.Arn
+          Id: "DailyInvite"
+
+  PermissionForSchedEventToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !GetAtt SecurityHubEnablerLambda.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt ScheduledRule.Arn
+
+  PermissionForCTEventToInvokeLambda: 
+    Type: AWS::Lambda::Permission
+    Properties: 
+      FunctionName: !GetAtt SecurityHubEnablerLambda.Arn
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt LifeCycleRule.Arn
+
+  FirstRun:
+    Type: Custom::SecurityHubEnablerLambdaFirstRun
+    DependsOn:
+      - SecurityHubEnablerTopic
+      - SecurityHubEnablerRole
+      - SecurityHubEnablerTopicLambdaPermission
+      - SecurityHubEnablerSubscription
+    Properties:
+      ServiceToken: !GetAtt SecurityHubEnablerLambda.Arn

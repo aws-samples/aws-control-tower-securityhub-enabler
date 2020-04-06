@@ -96,12 +96,12 @@ def get_enabled_regions(session, regions):
             enabled_regions.append(region)
         except ClientError as e:
             if e.response['Error']['Code'] == "InvalidClientTokenId":
-                LOGGER.info("%s region is disabled." % (region))
+                LOGGER.info(f"{region} region is disabled.")
             else:
                 # LOGGER.debug("Error %s %s" % (e.response['Error'],region))
                 err = e.response['Error']
-                LOGGER.error(
-                    "Error %s occurred testing region %s" % (err, region))
+                LOGGER.error(f"Error {err} occurred testing region {region}")
+    LOGGER.info(f"Enabled Regions: {enabled_regions}")
     return enabled_regions
 
 
@@ -114,9 +114,11 @@ def get_account_list():
     SecurityHub being disabled while respecting OU filters.
     """
     aws_accounts_dict = dict()
-    # Get list of accounts in org
+
+    # Get List of Accounts in AWS Organization
     orgclient = session.client('organizations', region_name='us-east-1')
     accounts = orgclient.list_accounts()
+    LOGGER.info(f"AWS Organizations Accounts: {accounts}")
     ctonly = False
     if os.environ['ou_filter'] == 'ControlTower':
         ctonly = True
@@ -125,12 +127,12 @@ def get_account_list():
         for acct in accounts['Accounts']:
             moreaccounts['Accounts'].append(acct)
         accounts = moreaccounts
-    LOGGER.debug(accounts)
+    LOGGER.debug(f"Accounts: {accounts}")
     LOGGER.info('Total accounts: {}'.format(len(accounts['Accounts'])))
     for account in accounts['Accounts']:
         ctaccount = False
         if ctonly:
-            # find account OU to test it for CT policies
+            # Find Account OU to Test for CT Policies
             parent = orgclient.list_parents(
                 ChildId=account['Id']
             )['Parents'][0]['Id']
@@ -144,8 +146,7 @@ def get_account_list():
                 if policy['Name'][:15] == 'aws-guardrails-':
                     # Found a CT account so setting flag
                     ctaccount = True
-        # Store accounts matching the oufilter that are active accounts in a
-        # dict
+        # Store Accounts Matching oufilter for active accounts in a dict
         if ctaccount == ctonly and account['Status'] == 'ACTIVE':
             accountid = account['Id']
             email = account['Email']
@@ -167,7 +168,7 @@ def assume_role(aws_account_number, role_name):
     partition = sts_client.get_caller_identity()['Arn'].split(":")[1]
     current_account = sts_client.get_caller_identity()['Arn'].split(":")[4]
     if aws_account_number == current_account:
-        LOGGER.info("Using existing session for %s." % (aws_account_number))
+        LOGGER.info(f"Using existing session for Account {aws_account_number}")
         return session
     else:
         response = sts_client.assume_role(
@@ -180,7 +181,7 @@ def assume_role(aws_account_number, role_name):
             aws_secret_access_key=response['Credentials']['SecretAccessKey'],
             aws_session_token=response['Credentials']['SessionToken']
         )
-        LOGGER.info("Assumed session for %s." % (aws_account_number))
+        LOGGER.info(f"Assumed session for Account {aws_account_number}")
         return sts_session
 
 
@@ -206,26 +207,87 @@ def get_master_members(master_session, aws_region):
                         member['AccountId']: member['MemberStatus']
                     }
                 )
+    LOGGER.info(f"Members of SecurityHub Master Account: {member_dict}")
     return member_dict
 
 
-def enable_cis_benchmark(sh_client, partition):
-    CIS_BENCHMARK_ARN = (
-        'arn:%s:securityhub:::ruleset/'
-        'cis-aws-foundations-benchmark/v/1.2.0' % (partition))
+def process_security_standards(sh_client, partition, region, account):
+    LOGGER.info(f"Processing Security Standards for Account {account} "
+                f"in {region}")
+    # CIS Standard ARNs
+    CIS_STANDARD_ARN = (f"arn:{partition}:securityhub:::ruleset/"
+                        f"cis-aws-foundations-benchmark/v/1.2.0")
+    CIS_SUBSCRIPTION_ARN = (f"arn:{partition}:securityhub:{region}:{account}:"
+                            f"subscription/cis-aws-foundations-benchmark"
+                            f"/v/1.2.0")
+    LOGGER.info(f"ARN: {CIS_STANDARD_ARN}")
+    # PCI Standard ARNs
+    PCI_STANDARD_ARN = (f"arn:{partition}:securityhub:{region}::standards/"
+                        f"pci-dss/v/3.2.1")
+    PCI_SUBSCRIPTION_ARN = (f"arn:{partition}:securityhub:{region}:{account}:"
+                            f"subscription/pci-dss/v/3.2.1")
+    LOGGER.info(f"ARN: {PCI_STANDARD_ARN}")
+    # Check for Enabled Standards
+    cis_standard_enabled = False
+    pci_standard_enabled = False
     enabled_standards = sh_client.get_enabled_standards()
-    if len(enabled_standards['StandardsSubscriptions']) > 0:
-        LOGGER.info(
-            "Standards are already enabled: %s" % (
-                enabled_standards['StandardsSubscriptions']))
-        return None
-    sh_client.batch_enable_standards(
-        StandardsSubscriptionRequests=[
-            {
-                'StandardsArn': CIS_BENCHMARK_ARN
-            }
-        ]
-    )
+    LOGGER.info(f"Account {account} in {region}. "
+                f"Enabled Standards: {enabled_standards}")
+    for item in enabled_standards["StandardsSubscriptions"]:
+        if CIS_STANDARD_ARN in item["StandardsArn"]:
+            cis_standard_enabled = True
+        if PCI_STANDARD_ARN in item["StandardsArn"]:
+            pci_standard_enabled = True
+    # Enable CIS Standard
+    if os.environ['cis_standard'] == 'Yes':
+        if cis_standard_enabled:
+            LOGGER.info(f"CIS AWS Foundations Benchmark v1.2.0 Security "
+                        f"Standard is already enabled in Account {account} "
+                        f"in {region}")
+        else:
+            sh_client.batch_enable_standards(
+                StandardsSubscriptionRequests=[
+                    {
+                        'StandardsArn': CIS_STANDARD_ARN
+                    }
+                        ])
+            LOGGER.info(f"Enabled CIS AWS Foundations Benchmark v1.2.0 "
+                        f"Security Standard in Account {account} in {region}")
+    # Disable CIS Standard
+    else:
+        if not cis_standard_enabled:
+            LOGGER.info(f"CIS AWS Foundations Benchmark v1.2.0 Security "
+                        f"Standard is already disabled in Account {account} "
+                        f"in {region}")
+        else:
+            sh_client.batch_disable_standards(
+                StandardsSubscriptionArns=[CIS_SUBSCRIPTION_ARN])
+            LOGGER.info(f"Disabled CIS AWS Foundations Benchmark v1.2.0 "
+                        f"Security Standard in Account {account} in {region}")
+    # Enable PCI Standard
+    if os.environ['pci_standard'] == 'Yes':
+        if pci_standard_enabled:
+            LOGGER.info(f"PCI DSS v3.2.1 Security Standard is already "
+                        f"enabled in Account {account} in {region}")
+        else:
+            sh_client.batch_enable_standards(
+                StandardsSubscriptionRequests=[
+                    {
+                        'StandardsArn': PCI_STANDARD_ARN
+                    }
+                ])
+            LOGGER.info(f"Enabled PCI DSS v3.2.1 Security Standard "
+                        f"in Account {account} in {region}")
+    # Disable PCI Standard
+    else:
+        if not pci_standard_enabled:
+            LOGGER.info(f"PCI DSS v3.2.1 Security Standard is already "
+                        f"disabled in Account {account} in {region}")
+        else:
+            sh_client.batch_disable_standards(
+                StandardsSubscriptionArns=[PCI_SUBSCRIPTION_ARN])
+            LOGGER.info(f"Disabled PCI DSS v3.2.1 Security Standard "
+                        f"in Account {account} in {region}")
 
 
 def get_ct_regions(session):
@@ -248,7 +310,7 @@ def get_ct_regions(session):
     except:
         LOGGER.warning('Control Tower StackSet not found in this region')
         region_set={'us-east-1','us-west-2','eu-west-1','eu-central-1'}
-    LOGGER.debug(region_set)
+    LOGGER.info(f"Control Tower Regions: {list(region_set)}")
     return list(region_set)
 
 
@@ -264,55 +326,56 @@ def disable_master(master_session, role, securityhub_regions, partition):
             member_client = member_session.client(
                 'securityhub', region_name=region)
             member_client.disable_security_hub()
-            LOGGER.info(
-                'SecurityHub disabled in member Account %s in %s' % (
-                    member, region))
+            LOGGER.info(f"Disabled SecurityHub in member Account {member} "
+                        f"in {region}")
         sh_master_client.disassociate_members(AccountIds=member_accounts)
+        LOGGER.info(f"Disassociated Member Accounts {member_accounts} "
+                    f"from the Master Account in {region}")
         sh_master_client.delete_members(AccountIds=member_accounts)
+        LOGGER.info(f"Deleted Member Accounts {member_accounts} "
+                    f"from the Master Account in {region}")
         try:
             sh_master_client.disable_security_hub()
-            LOGGER.info(
-                'SecurityHub disabled in Master Account in %s' % (region))
+            LOGGER.info(f"Disabled SecurityHub in Master Account in {region}")
         except Exception:
-            LOGGER.info(
-                'SecurityHub already disabled in Master Account in %s' % (
-                    region))
+            LOGGER.info(f"SecurityHub already Disable in Master Account "
+                        f"in {region}")
     return
 
 
 def enable_master(master_session, securityhub_regions, partition):
+    master_account = os.environ['sh_master_account']
     for region in securityhub_regions:
         sh_master_client = master_session.client(
             'securityhub', region_name=region)
-
-        # Making sure SecurityHub is enabled in the Master Account
+        # Ensure SecurityHub is Enabled in the Master Account
         try:
             sh_master_client.get_findings()
         except Exception:
-            LOGGER.info("SecurityHub not currently enabled on Master account "
-                        "in %s. Enabling it." % (region))
+            LOGGER.info(f"SecurityHub not currently Enabled on Master Account "
+                        f"{master_account} in {region}. Enabling it.")
             sh_master_client.enable_security_hub()
         else:
-            # Security Hub already enabled
-            LOGGER.info('SecurityHub already enabled in Master Account in '
-                        '%s' % (region))
-        LOGGER.info(
-            'Enabling CIS Benchmark in Master Account in %s' % (region))
-        enable_cis_benchmark(sh_master_client, partition)
+            LOGGER.info(f"SecurityHub already Enabled in Master Account "
+                        f"{master_account} in {region}")
+        # Enable Security Standards
+        process_security_standards(sh_master_client, partition, region,
+                                   master_account)
     return
 
 
 def lambda_handler(event, context):
-    LOGGER.info('REQUEST RECEIVED: %s' % (json.dumps(event, default=str)))
+    LOGGER.info(f"REQUEST RECEIVED: {json.dumps(event, default=str)}")
     partition = context.invoked_function_arn.split(":")[1]
     master_account_id = os.environ['sh_master_account']
     master_session = assume_role(master_account_id, os.environ['assume_role'])
+    # Regions to Deploy
     if os.environ['region_filter'] == 'SecurityHub':
         securityhub_regions = get_enabled_regions(
             session, session.get_available_regions('securityhub'))
     else:
         securityhub_regions = get_ct_regions(session)
-    # Check for custom resource call
+    # Check for Custom Resource Call
     if 'RequestType' in event and (
             event['RequestType'] == "Delete" or
             event['RequestType'] == "Create" or
@@ -326,23 +389,21 @@ def lambda_handler(event, context):
                 os.environ['assume_role'],
                 securityhub_regions,
                 partition)
+        LOGGER.info(f"Sending Custom Resource Response")
         responseData = {}
-        LOGGER.info('Sending custom resource response')
         send(event, context, "SUCCESS", responseData)
         if action == "Delete":
             # Exit on delete so it doesn't re-enable existing accounts
             raise SystemExit()
     else:
         action = 'Create'
-    LOGGER.info(
-        "Enabling SecurityHub in regions %s" % (securityhub_regions))
+    LOGGER.info(f"Enabling SecurityHub in Regions: {securityhub_regions}")
     aws_account_dict = dict()
-    # Checks if function was called by SNS
+    # Checks if Function was called by SNS
     if 'Records' in event:
         message = event['Records'][0]['Sns']['Message']
         jsonmessage = json.loads(message)
-        LOGGER.info('SNS message: %s' % (
-            json.dumps(jsonmessage, default=str)))
+        LOGGER.info(f"SNS message: {json.dumps(jsonmessage, default=str)}")
         accountid = jsonmessage['AccountId']
         email = jsonmessage['Email']
         aws_account_dict.update({accountid: email})
@@ -355,9 +416,7 @@ def lambda_handler(event, context):
             event['detail']['eventName'] == 'CreateManagedAccount'):
         servicedetail = event['detail']['serviceEventDetails']
         status = servicedetail['createManagedAccountStatus']
-        LOGGER.info(
-            'Control Tower Event: CreateManagedAccount %s' % (status)
-            )
+        LOGGER.info(f"Control Tower Event: CreateManagedAccount {status}")
         accountid = status['account']['accountId']
         email = session.client('organizations').describe_account(
             AccountId=accountid)['Account']['Email']
@@ -375,37 +434,36 @@ def lambda_handler(event, context):
                 'Email': email,
                 'Action': action
             }
-            LOGGER.info("Publishing to configure account %s" % (accountid))
+            LOGGER.info(f"Publishing to configure Account {accountid}")
             snsclient.publish(
                 TopicArn=os.environ['topic'], Message=json.dumps(sns_message))
         return
-    # Ensure the security master is still enabled
+    # Ensure the Security Hub Master is still enabled
     enable_master(master_session, securityhub_regions, partition)
-
-    LOGGER.info('Processing: %s' % (json.dumps(aws_account_dict)))
+    # Processing Accounts
+    LOGGER.info(f"Processing: {json.dumps(aws_account_dict)}")
     for account in aws_account_dict.keys():
         email_address = aws_account_dict[account]
         if account == master_account_id:
-            LOGGER.info("%s cannot become a member of itself" % (account))
+            LOGGER.info(f"Account {account} cannot become a member of itself")
             continue
+        LOGGER.debug(f"Working on SecurityHub on Account {account} in \
+                     regions %{securityhub_regions}")
         failed_invitations = []
-        LOGGER.debug(
-            "Working on SecurityHub on account %s in regions %s" % (
-                securityhub_regions, account))
         member_session = assume_role(account, os.environ['assume_role'])
+        # Process Regions
         for aws_region in securityhub_regions:
             sh_member_client = member_session.client(
                 'securityhub', region_name=aws_region)
             sh_master_client = master_session.client(
                 'securityhub', region_name=aws_region)
             master_members = get_master_members(master_session, aws_region)
-            LOGGER.info('Beginning %s in %s' % (
-                        account, aws_region))
+            LOGGER.info(f"Beginning {aws_region} in Account {account}")
             if account in master_members:
                 if master_members[account] == 'Associated':
-                    LOGGER.info(
-                        "%s is already associated with %s in %s" % (
-                            account, master_account_id, aws_region))
+                    LOGGER.info(f"Account {account} is already associated "
+                                f"with Master Account {master_account_id} in "
+                                f"{aws_region}")
                     if action == 'Delete':
                         try:
                             sh_master_client.disassociate_members(
@@ -418,12 +476,12 @@ def lambda_handler(event, context):
                         except Exception:
                             continue
                 else:
-                    LOGGER.warning(
-                        "%s exists, but not associated to %s in %s" % (
-                            account, master_account_id, aws_region))
-                    LOGGER.info(
-                        "Disassociating %s from %s in %s" % (
-                            account, master_account_id, aws_region))
+                    LOGGER.warning(f"Account {account} exists, but not "
+                                   f"associated to Master Account "
+                                   f"{master_account_id} in {aws_region}")
+                    LOGGER.info(f"Disassociating Account {account} from "
+                                f"Master Account {master_account_id} in "
+                                f"{aws_region}")
                     try:
                         sh_master_client.disassociate_members(
                             AccountIds=[account])
@@ -434,53 +492,47 @@ def lambda_handler(event, context):
                             AccountIds=[account])
                     except Exception:
                         continue
-
             try:
                 sh_member_client.get_findings()
             except Exception as e:
                 LOGGER.debug(str(e))
-                LOGGER.info(
-                    "SecurityHub not currently enabled on %s in %s" % (
-                        account, aws_region))
+                LOGGER.info(f"SecurityHub not currently Enabled on Account "
+                            f"{account} in {aws_region}")
                 if action != 'Delete':
-                    LOGGER.info("Enabling SecurityHub on %s in %s" % (
-                        account, aws_region))
+                    LOGGER.info(f"Enabled SecurityHub on Account {account} "
+                                f"in {aws_region}")
                     sh_member_client.enable_security_hub()
             else:
                 # Security Hub already enabled
                 if action != 'Delete':
-                    LOGGER.info(
-                        'SecurityHub already enabled in %s in %s' % (
-                            account, aws_region))
+                    LOGGER.info(f"SecurityHub already Enabled in Account "
+                                f"{account} in {aws_region}")
                 else:
+                    LOGGER.info(f"Disabled SecurityHub in Account "
+                                f"{account} in {aws_region}")
                     try:
                         sh_member_client.disable_security_hub()
                     except Exception:
                         continue
             if action != 'Delete':
-                LOGGER.info('Enabling CIS Benchmark in %s in %s' % (
-                    account, aws_region))
-                enable_cis_benchmark(sh_member_client, partition)
-
-                LOGGER.info("Creating member for %s and %s in %s" % (
-                    account, email_address, aws_region))
+                process_security_standards(sh_member_client, partition,
+                                           aws_region, account)
+                LOGGER.info(f"Creating member for Account {account} and "
+                            f"Email, {email_address} in {aws_region}")
                 member_response = sh_master_client.create_members(
                     AccountDetails=[{
                         'AccountId': account,
                         'Email': email_address
                     }])
-
                 if len(member_response['UnprocessedAccounts']) > 0:
-                    LOGGER.warning("Could not create member %s in %s" % (
-                        account, aws_region))
+                    LOGGER.warning(f"Could not create member Account "
+                                   f"{account} in {aws_region}")
                     failed_invitations.append({
                         'AccountId': account, 'Region': aws_region
                     })
                     continue
-                LOGGER.info("Inviting %s in %s" % (
-                    account, aws_region))
+                LOGGER.info(f"Inviting Account {account} in {aws_region}")
                 sh_master_client.invite_members(AccountIds=[account])
-
             # go through each invitation (hopefully only 1)
             # and pull the one matching the Security Master Account ID
             try:
@@ -491,19 +543,20 @@ def lambda_handler(event, context):
                     master_invitation = next(
                         item for item in invitation['Invitations'] if
                         item["AccountId"] == master_account_id)
-
-                LOGGER.info(
-                    "Accepting invitation on %s from %s in %s" % (
-                        account, master_account_id, aws_region))
-
+                LOGGER.info(f"Accepting invitation on Account {account} "
+                            f"from Master Account {master_account_id} in "
+                            f"{aws_region}")
                 sh_member_client.accept_invitation(
                     MasterId=master_account_id,
                     InvitationId=master_invitation['InvitationId'])
             except Exception as e:
-                LOGGER.warning(
-                    "%s could not accept invitation from %s in %s" % (
-                        account, master_account_id, aws_region))
+                LOGGER.warning(f"Account {account} could not accept "
+                               f"invitation from Master Account "
+                               f"{master_account_id} in {aws_region}")
                 LOGGER.warning(e)
+
         if len(failed_invitations) > 0:
-            LOGGER.warning("Error Processing following accounts: %s" % (
-                json.dumps(failed_invitations, sort_keys=True, default=str)))
+            failed_accounts = json.dumps(failed_invitations,
+                                         sort_keys=True, default=str)
+            LOGGER.warning(f"Error Processing the following Accounts: "
+                           f"{failed_accounts}")

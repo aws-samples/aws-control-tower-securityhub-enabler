@@ -637,3 +637,4 @@ amplifyxc.config
 
 # Code packaging working directory
 src/.package
+src/securityhub_enabler.zip

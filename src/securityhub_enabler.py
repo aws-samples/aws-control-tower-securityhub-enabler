@@ -235,12 +235,20 @@ def get_ct_regions(session):
     # what regions it has deployed stacks too.
     # It doesn't have to evaluate enabled_regions as only enabled regions
     # will/can have stacks deployed
+    # TODO this only works if the SecurityHub Enabler stack is deployed in the
+    # Control Tower installation region!  Otherwise defaults to intial Control
+    # Tower regions.
     cf = session.client('cloudformation')
-    stacks = cf.list_stack_instances(
-        StackSetName='AWSControlTowerBP-BASELINE-CLOUDWATCH')
     region_set = set()
-    for stack in stacks['Summaries']:
-        region_set.add(stack['Region'])
+    try:
+        stacks = cf.list_stack_instances(
+            StackSetName='AWSControlTowerBP-BASELINE-CLOUDWATCH')
+        for stack in stacks['Summaries']:
+            region_set.add(stack['Region'])
+    except:
+        LOGGER.warning('Control Tower StackSet not found in this region')
+        region_set={'us-east-1','us-west-2','eu-west-1','eu-central-1'}
+    LOGGER.debug(region_set)
     return list(region_set)
 
 

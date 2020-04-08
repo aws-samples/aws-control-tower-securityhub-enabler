@@ -50,17 +50,17 @@ Parameters:
   CISStandard:
     Type: String
     Description: Should Security Hub enable the CIS AWS Foundations Benchmark v1.2.0 Security Standard?
-    Default: Yes
+    Default: "Yes"
     AllowedValues:
-      - Yes
-      - No
+      - "Yes"
+      - "No"
   PCIStandard:
     Type: String
     Description: Should Security Hub enable the PCI DSS v3.2.1 Security Standard?
-    Default: No
+    Default: "No"
     AllowedValues:
-      - Yes
-      - No
+      - "Yes"
+      - "No"
 
 
 Resources:

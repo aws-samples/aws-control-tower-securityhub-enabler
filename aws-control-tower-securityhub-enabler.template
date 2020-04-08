@@ -8,49 +8,60 @@ Parameters:
     Type: String
     Description: Which account will be the SecurityHub Master?  Enter the AWS account ID. (This is generally the AWS Control Tower Audit account)
     AllowedPattern: '^[0-9]{12}$'
-    ConstraintDescription: >
-      The Security Account ID must be a 12 character string.
+    ConstraintDescription: The Security Account ID must be a 12 character string.
     MinLength: 12
     MaxLength: 12
   OrganizationId:
     Type: String
     Description: AWS Organizations ID for the Control Tower. This is used to restrict permissions to least privilege.
+    AllowedPattern: '^[o][\-][a-z0-9]{10}$'
+    ConstraintDescription: The Org Id must be a 12 character string starting with o- and followed by 10 lower case alphanumeric characters
     MinLength: 12
     MaxLength: 12
-    AllowedPattern: '^[o][\-][a-z0-9]{10}$'
-    ConstraintDescription: >
-      The Org Id must be a 12 character string starting with o- and followed by 10 lower case alphanumeric characters
   RegionFilter:
     Type: String
     Description: Should Security Hub be enabled for all Security Hub supported regions, or only Control Tower supported regions
+    Default: ControlTower
     AllowedValues: 
       - SecurityHub
       - ControlTower
-    Default: ControlTower
   OUFilter:
     Type: String
     Description: Should Security Hub be enabled for all accounts, or only accounts Control Tower Managed OUs?
+    Default: All
     AllowedValues:
       - All
       - ControlTower
-    Default: ControlTower
   S3SourceBucket:
     Type: String
-    Default: cf-templates-1v67z7l4jhchq-us-east-1
     Description: S3 bucket containing securityhub_enabler.zip file for SecurityHubEnabler lambda function
+    Default: ""
   ComplianceFrequency:
     Type: Number
-    Default: "7"
     Description: Frequency (in days between 1 and 30, default is 7) to check organizational compliance
+    Default: 7
+    ConstraintDescription: Compliance Frequency must be a number between 1 and 30, inclusive.
     MinValue: 1
     MaxValue: 30
-    ConstraintDescription: >
-      Compliance Frequency must be a number between 1 and 30, inclusive.
   RoleToAssume:
     Type: String
+    Description: IAM role to be assumed in child accounts to enable SecurityHub. The default is AWSControlTowerExecution for a Control Tower environment.
     Default: 'AWSControlTowerExecution'
-    Description: >
-      IAM role to be assumed in child accounts to enable SecurityHub. The default is AWSControlTowerExecution for a Control Tower environment.
+  CISStandard:
+    Type: String
+    Description: Should Security Hub enable the CIS AWS Foundations Benchmark v1.2.0 Security Standard?
+    Default: "Yes"
+    AllowedValues:
+      - "Yes"
+      - "No"
+  PCIStandard:
+    Type: String
+    Description: Should Security Hub enable the PCI DSS v3.2.1 Security Standard?
+    Default: "No"
+    AllowedValues:
+      - "Yes"
+      - "No"
+
 
 Resources:
   SecurityHubEnablerRole: 
@@ -113,6 +124,7 @@ Resources:
               - 'iam:CreateServiceLinkedRole'
               - 'securityhub:AcceptInvitation'
               - 'securityhub:BatchEnableStandards'
+              - 'securityhub:BatchDisableStandards'
               - 'securityhub:CreateMembers'
               - 'securityhub:DisassociateMembers'
               - 'securityhub:DisableSecurityHub'
@@ -155,6 +167,8 @@ Resources:
             ct_master_account: !Sub ${AWS::AccountId}
             sh_master_account: !Sub ${SecurityAccountId}
             topic: !Ref SecurityHubEnablerTopic
+            cis_standard: !Ref CISStandard
+            pci_standard: !Ref PCIStandard
 
   SecurityHubEnablerTopic:
     Type: AWS::SNS::Topic

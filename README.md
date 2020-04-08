@@ -1,5 +1,4 @@
 # Centralize SecurityHub
-Adapted for Control Tower by: Jason Cornick <cornickj@amazon.com>
 
 Installing this Customization will enable Security Hub in all Control Tower managed accounts, with the Audit account acting as the default Security Hub Master.
 
@@ -15,8 +14,8 @@ The cfnResponse module has recently been impacted by [removal of the vendored ve
 
 ## Instructions
 
-1. Run package.sh to package the code and dependencies.
-1. Upload the securityhub_enabler.zip file to an S3 bucket, note the bucket name.
+1. Run src/package.sh to package the code and dependencies
+1. Upload the src/securityhub_enabler.zip file to an S3 bucket, note the bucket name
 1. Gather other information for deployment parameters:
 
     - In AWS Organizations, look on the Settings page for the Organization ID.  It will be o-xxxxxxxxxx

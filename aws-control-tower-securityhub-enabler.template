@@ -47,6 +47,13 @@ Parameters:
     Type: String
     Description: IAM role to be assumed in child accounts to enable SecurityHub. The default is AWSControlTowerExecution for a Control Tower environment.
     Default: 'AWSControlTowerExecution'
+  AWSStandard:
+    Type: String
+    Description: Should Security Hub enable the AWS Foundational Security Best Practices v1.0.0 Security Standard?
+    Default: "Yes"
+    AllowedValues:
+      - "Yes"
+      - "No"
   CISStandard:
     Type: String
     Description: Should Security Hub enable the CIS AWS Foundations Benchmark v1.2.0 Security Standard?
@@ -167,6 +174,7 @@ Resources:
             ct_master_account: !Sub ${AWS::AccountId}
             sh_master_account: !Sub ${SecurityAccountId}
             topic: !Ref SecurityHubEnablerTopic
+            aws_standard: !Ref AWSStandard
             cis_standard: !Ref CISStandard
             pci_standard: !Ref PCIStandard
 

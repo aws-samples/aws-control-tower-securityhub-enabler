@@ -214,6 +214,13 @@ def get_master_members(master_session, aws_region):
 def process_security_standards(sh_client, partition, region, account):
     LOGGER.info(f"Processing Security Standards for Account {account} "
                 f"in {region}")
+    # AWS Standard ARNs
+    AWS_STANDARD_ARN = (f"arn:{partition}:securityhub:{region}::standards/"
+                        f"aws-foundational-security-best-practices/v/1.0.0")
+    AWS_SUBSCRIPTION_ARN = (f"arn:{partition}:securityhub:{region}:{account}:"
+                            f"subscription/aws-foundational-security-best-practices"
+                            f"/v/1.0.0")
+    LOGGER.info(f"ARN: {AWS_STANDARD_ARN}")
     # CIS Standard ARNs
     CIS_STANDARD_ARN = (f"arn:{partition}:securityhub:::ruleset/"
                         f"cis-aws-foundations-benchmark/v/1.2.0")
@@ -234,10 +241,40 @@ def process_security_standards(sh_client, partition, region, account):
     LOGGER.info(f"Account {account} in {region}. "
                 f"Enabled Standards: {enabled_standards}")
     for item in enabled_standards["StandardsSubscriptions"]:
+        if AWS_STANDARD_ARN in item["StandardsArn"]:
+            aws_standard_enabled = True
         if CIS_STANDARD_ARN in item["StandardsArn"]:
             cis_standard_enabled = True
         if PCI_STANDARD_ARN in item["StandardsArn"]:
             pci_standard_enabled = True
+    # Enable AWS Standard
+    if os.environ['aws_standard'] == 'Yes':
+        if aws_standard_enabled:
+            LOGGER.info(f"AWS Foundational Security Best Practices v1.0.0 "
+                        f"Security Standard is already enabled in Account "
+                        f"{account} in {region}")
+        else:
+            sh_client.batch_enable_standards(
+                StandardsSubscriptionRequests=[
+                    {
+                        'StandardsArn': AWS_STANDARD_ARN
+                    }
+                ])
+            LOGGER.info(f"Enabled AWS Foundational Security Best Practices "
+                        f"v1.0.0 Security Standard in Account {account} in "
+                        f"{region}")
+    # Disable AWS Standard
+    else:
+        if not aws_standard_enabled:
+            LOGGER.info(f"AWS Foundational Security Best Practices v1.0.0 "
+                        f"Security Standard is already disabled in Account "
+                        f"{account} in {region}")
+        else:
+            sh_client.batch_disable_standards(
+                StandardsSubscriptionArns=[AWS])
+            LOGGER.info(f"Disabled AWS Foundational Security Best Practices "
+                        f"v1.0.0 Security Standard in Account {account} in "
+                        f"{region}")
     # Enable CIS Standard
     if os.environ['cis_standard'] == 'Yes':
         if cis_standard_enabled:

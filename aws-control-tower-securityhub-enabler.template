@@ -34,8 +34,12 @@ Parameters:
       - ControlTower
   S3SourceBucket:
     Type: String
-    Description: S3 bucket containing securityhub_enabler.zip file for SecurityHubEnabler lambda function
+    Description: S3 bucket containing SecurityHubEnabler Lambda deployment package
     Default: ""
+  S3SourceKey:
+    Type: String
+    Description: S3 object key for SecurityHubEnabler Lambda deployment package
+    Default: securityhub_enabler.zip
   ComplianceFrequency:
     Type: Number
     Description: Frequency (in days between 1 and 30, default is 7) to check organizational compliance
@@ -159,7 +163,7 @@ Resources:
       Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${SecurityHubEnablerRole}"
       Code: 
         S3Bucket: !Ref S3SourceBucket
-        S3Key: securityhub_enabler.zip
+        S3Key: !Ref S3SourceKey
       Runtime: "python3.7"
       MemorySize: 256
       Timeout: 900

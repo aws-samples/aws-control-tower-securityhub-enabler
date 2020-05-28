@@ -235,6 +235,7 @@ def process_security_standards(sh_client, partition, region, account):
                             f"subscription/pci-dss/v/3.2.1")
     LOGGER.info(f"ARN: {PCI_STANDARD_ARN}")
     # Check for Enabled Standards
+    aws_standard_enabled = False
     cis_standard_enabled = False
     pci_standard_enabled = False
     enabled_standards = sh_client.get_enabled_standards()
@@ -271,7 +272,7 @@ def process_security_standards(sh_client, partition, region, account):
                         f"{account} in {region}")
         else:
             sh_client.batch_disable_standards(
-                StandardsSubscriptionArns=[AWS_STANDARD_ARN])
+                StandardsSubscriptionArns=[AWS_SUBSCRIPTION_ARN])
             LOGGER.info(f"Disabled AWS Foundational Security Best Practices "
                         f"v1.0.0 Security Standard in Account {account} in "
                         f"{region}")

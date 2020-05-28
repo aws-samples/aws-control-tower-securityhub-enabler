@@ -30,7 +30,7 @@ https://github.com/awslabs/aws-securityhub-multiaccount-scripts
 
 import boto3
 import json
-import requests
+import urllib3
 import os
 import logging
 from botocore.exceptions import ClientError
@@ -72,10 +72,10 @@ def send(
         'content-type': '',
         'content-length': str(len(json_responseBody))
     }
-
+    http = urllib3.PoolManager()
     try:
-        response = requests.put(responseUrl,
-                                data=json_responseBody,
+        response = http.request('PUT',responseUrl,
+                                body=json_responseBody,
                                 headers=headers)
         print("Status code: " + response.reason)
     except Exception as e:
@@ -235,6 +235,7 @@ def process_security_standards(sh_client, partition, region, account):
                             f"subscription/pci-dss/v/3.2.1")
     LOGGER.info(f"ARN: {PCI_STANDARD_ARN}")
     # Check for Enabled Standards
+    aws_standard_enabled = False
     cis_standard_enabled = False
     pci_standard_enabled = False
     enabled_standards = sh_client.get_enabled_standards()
@@ -271,7 +272,7 @@ def process_security_standards(sh_client, partition, region, account):
                         f"{account} in {region}")
         else:
             sh_client.batch_disable_standards(
-                StandardsSubscriptionArns=[AWS])
+                StandardsSubscriptionArns=[AWS_SUBSCRIPTION_ARN])
             LOGGER.info(f"Disabled AWS Foundational Security Best Practices "
                         f"v1.0.0 Security Standard in Account {account} in "
                         f"{region}")

@@ -10,14 +10,7 @@ SCRIPT_DIRECTORY="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pw
 pushd $SCRIPT_DIRECTORY > /dev/null
  
 rm -rf .package securityhub_enabler.zip
-mkdir .package
  
-pip3 install --target .package --requirement requirements.txt
- 
-pushd .package > /dev/null
-zip --recurse-paths ${SCRIPT_DIRECTORY}/securityhub_enabler.zip .
-popd > /dev/null
- 
-zip --grow securityhub_enabler.zip securityhub_enabler.py
+zip securityhub_enabler.zip securityhub_enabler.py
  
 popd > /dev/null

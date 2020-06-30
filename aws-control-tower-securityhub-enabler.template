@@ -72,7 +72,10 @@ Parameters:
     AllowedValues:
       - "Yes"
       - "No"
-
+Conditions:
+  ComplianceFrequencySingleDay: !Equals
+    - !Ref 'ComplianceFrequency'
+    - 1
 
 Resources:
   SecurityHubEnablerRole: 
@@ -212,7 +215,10 @@ Resources:
     Type: AWS::Events::Rule
     Properties: 
       Description: "SecurityHubScheduledComplianceTrigger"
-      ScheduleExpression: !Sub "rate(${ComplianceFrequency} days)"
+      ScheduleExpression: !If
+        - ComplianceFrequencySingleDay
+        - !Sub "rate(${ComplianceFrequency} day)"
+        - !Sub "rate(${ComplianceFrequency} days)"
       State: "ENABLED"
       Targets: 
         - 

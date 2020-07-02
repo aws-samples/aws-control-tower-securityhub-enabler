@@ -167,7 +167,7 @@ Resources:
       Code: 
         S3Bucket: !Ref S3SourceBucket
         S3Key: !Ref S3SourceKey
-      Runtime: "python3.7"
+      Runtime: "python3.8"
       MemorySize: 256
       Timeout: 900
       # ###################################################################

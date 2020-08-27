@@ -21,4 +21,4 @@ The cfnResponse module has recently been impacted by [removal of the vendored ve
     - In AWS Organizations, look on the Settings page for the Organization ID.  It will be o-xxxxxxxxxx
     - In AWS Organizations, look on the Accounts page for the Audit account ID.
 
-1. Launch the CloudFormation stack using the aws-control-tower-securityhub-enabler.template file as the source.
+1. Launch the CloudFormation stack using the aws-control-tower-securityhub-enabler.template file as the source.  The values noted in the steps above will be entered as parameters to the CloudFormation stack.  

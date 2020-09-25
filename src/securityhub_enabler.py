@@ -48,41 +48,42 @@ session = boto3.Session()
 
 
 def send(
-  event, context, responseStatus, responseData,
-  physicalResourceId=None, noEcho=False):
-    responseUrl = event['ResponseURL']
+  event, context, response_status, response_data,
+  physical_resource_id=None, no_echo=False):
+    response_url = event['ResponseURL']
 
-    print(responseUrl)
+    print(response_url)
     ls = context.log_stream_name
-    responseBody = {}
-    responseBody['Status'] = responseStatus
-    responseBody['Reason'] = 'See the details in CloudWatch Log Stream: ' + ls
-    responseBody['PhysicalResourceId'] = physicalResourceId or ls
-    responseBody['StackId'] = event['StackId']
-    responseBody['RequestId'] = event['RequestId']
-    responseBody['LogicalResourceId'] = event['LogicalResourceId']
-    responseBody['NoEcho'] = noEcho
-    responseBody['Data'] = responseData
+    response_body = {}
+    response_body['Status'] = response_status
+    response_body['Reason'] = 'See the details in CloudWatch Log Stream: ' + ls
+    response_body['PhysicalResourceId'] = physical_resource_id or ls
+    response_body['StackId'] = event['StackId']
+    response_body['RequestId'] = event['RequestId']
+    response_body['LogicalResourceId'] = event['LogicalResourceId']
+    response_body['NoEcho'] = no_echo
+    response_body['Data'] = response_data
 
-    json_responseBody = json.dumps(responseBody)
+    json_response_body = json.dumps(response_body)
 
-    print("Response body:\n" + json_responseBody)
+    print("Response body:\n" + json_response_body)
 
     headers = {
         'content-type': '',
-        'content-length': str(len(json_responseBody))
+        'content-length': str(len(json_response_body))
     }
     http = urllib3.PoolManager()
     try:
-        response = http.request('PUT',responseUrl,
-                                body=json_responseBody,
+        response = http.request('PUT',
+                                response_url,
+                                body=json_response_body,
                                 headers=headers)
         print("Status code: " + response.reason)
     except Exception as e:
         print("send(..) failed executing requests.put(..): " + str(e))
 
 
-def get_enabled_regions(session, regions):
+def get_enabled_regions(region_session, regions):
     """
     With the introduction of regions that can be disabled,
     it is necessary to test to see if a region can be used
@@ -90,7 +91,7 @@ def get_enabled_regions(session, regions):
     """
     enabled_regions = []
     for region in regions:
-        sts_client = session.client('sts', region_name=region)
+        sts_client = region_session.client('sts', region_name=region)
         try:
             sts_client.get_caller_identity()
             enabled_regions.append(region)
@@ -116,41 +117,41 @@ def get_account_list():
     aws_accounts_dict = dict()
 
     # Get List of Accounts in AWS Organization
-    orgclient = session.client('organizations', region_name='us-east-1')
-    accounts = orgclient.list_accounts()
+    org_client = session.client('organizations', region_name='us-east-1')
+    accounts = org_client.list_accounts()
     LOGGER.info(f"AWS Organizations Accounts: {accounts}")
-    ctonly = False
+    ct_only = False
     if os.environ['ou_filter'] == 'ControlTower':
-        ctonly = True
+        ct_only = True
     while 'NextToken' in accounts:
-        moreaccounts = orgclient.list_accounts(NextToken=accounts['NextToken'])
+        more_accounts = org_client.list_accounts(NextToken=accounts['NextToken'])
         for acct in accounts['Accounts']:
-            moreaccounts['Accounts'].append(acct)
-        accounts = moreaccounts
+            more_accounts['Accounts'].append(acct)
+        accounts = more_accounts
     LOGGER.debug(f"Accounts: {accounts}")
     LOGGER.info('Total accounts: {}'.format(len(accounts['Accounts'])))
     for account in accounts['Accounts']:
-        ctaccount = False
-        if ctonly:
+        ct_account = False
+        if ct_only:
             # Find Account OU to Test for CT Policies
-            parent = orgclient.list_parents(
+            parent = org_client.list_parents(
                 ChildId=account['Id']
             )['Parents'][0]['Id']
             # enumerate policies for the account so we can look for Control
             # Tower SCPs
-            policies = orgclient.list_policies_for_target(
+            policies = org_client.list_policies_for_target(
                 TargetId=parent,
                 Filter="SERVICE_CONTROL_POLICY"
             )
             for policy in policies['Policies']:
                 if policy['Name'][:15] == 'aws-guardrails-':
                     # Found a CT account so setting flag
-                    ctaccount = True
-        # Store Accounts Matching oufilter for active accounts in a dict
-        if ctaccount == ctonly and account['Status'] == 'ACTIVE':
-            accountid = account['Id']
+                    ct_account = True
+        # Store Accounts Matching ou filter for active accounts in a dict
+        if ct_account == ct_only and account['Status'] == 'ACTIVE':
+            account_id = account['Id']
             email = account['Email']
-            aws_accounts_dict.update({accountid: email})
+            aws_accounts_dict.update({account_id: email})
     LOGGER.info('Active accounts count: %s, Active accounts: %s' % (
         len(aws_accounts_dict.keys()), json.dumps(aws_accounts_dict)))
     return aws_accounts_dict
@@ -158,17 +159,16 @@ def get_account_list():
 
 def assume_role(aws_account_number, role_name):
     """
-    Assumes the provided role in each account and returns a session object
+    Assumes the provided role in each account and returns a region_session object
     :param aws_account_number: AWS Account Number
     :param role_name: Role to assume in target account
-    :param aws_region: AWS Region for the Client call
     :return: Session object for the specified AWS Account and Region
     """
     sts_client = boto3.client('sts')
     partition = sts_client.get_caller_identity()['Arn'].split(":")[1]
     current_account = sts_client.get_caller_identity()['Arn'].split(":")[4]
     if aws_account_number == current_account:
-        LOGGER.info(f"Using existing session for Account {aws_account_number}")
+        LOGGER.info(f"Using existing region_session for Account {aws_account_number}")
         return session
     else:
         response = sts_client.assume_role(
@@ -181,13 +181,14 @@ def assume_role(aws_account_number, role_name):
             aws_secret_access_key=response['Credentials']['SecretAccessKey'],
             aws_session_token=response['Credentials']['SessionToken']
         )
-        LOGGER.info(f"Assumed session for Account {aws_account_number}")
+        LOGGER.info(f"Assumed region_session for Account {aws_account_number}")
         return sts_session
 
 
 def get_master_members(master_session, aws_region):
     """
     Returns a list of current members of the SecurityHub master account
+    :param master_session: boto3 ct_session object for creating clients
     :param aws_region: AWS Region of the SecurityHub master account
     :return: dict of AwsAccountId:MemberStatus
     """
@@ -214,26 +215,34 @@ def get_master_members(master_session, aws_region):
 def process_security_standards(sh_client, partition, region, account):
     LOGGER.info(f"Processing Security Standards for Account {account} "
                 f"in {region}")
+    enabled_check = boto3.client('ec2').describe_regions(
+        RegionNames=[
+            region
+        ]
+    )['Regions'][0]['OptInStatus']
+    if enabled_check == 'not-opted-in':
+        LOGGER.info(f"{region} is not opted in.")
+        return
     # AWS Standard ARNs
-    AWS_STANDARD_ARN = (f"arn:{partition}:securityhub:{region}::standards/"
+    aws_standard_arn = (f"arn:{partition}:securityhub:{region}::standards/"
                         f"aws-foundational-security-best-practices/v/1.0.0")
-    AWS_SUBSCRIPTION_ARN = (f"arn:{partition}:securityhub:{region}:{account}:"
+    aws_subscription_arn = (f"arn:{partition}:securityhub:{region}:{account}:"
                             f"subscription/aws-foundational-security-best-practices"
                             f"/v/1.0.0")
-    LOGGER.info(f"ARN: {AWS_STANDARD_ARN}")
+    LOGGER.info(f"ARN: {aws_standard_arn}")
     # CIS Standard ARNs
-    CIS_STANDARD_ARN = (f"arn:{partition}:securityhub:::ruleset/"
+    cis_standard_arn = (f"arn:{partition}:securityhub:::ruleset/"
                         f"cis-aws-foundations-benchmark/v/1.2.0")
-    CIS_SUBSCRIPTION_ARN = (f"arn:{partition}:securityhub:{region}:{account}:"
+    cis_subscription_arn = (f"arn:{partition}:securityhub:{region}:{account}:"
                             f"subscription/cis-aws-foundations-benchmark"
                             f"/v/1.2.0")
-    LOGGER.info(f"ARN: {CIS_STANDARD_ARN}")
+    LOGGER.info(f"ARN: {cis_standard_arn}")
     # PCI Standard ARNs
-    PCI_STANDARD_ARN = (f"arn:{partition}:securityhub:{region}::standards/"
+    pci_standard_arn = (f"arn:{partition}:securityhub:{region}::standards/"
                         f"pci-dss/v/3.2.1")
-    PCI_SUBSCRIPTION_ARN = (f"arn:{partition}:securityhub:{region}:{account}:"
+    pci_subscription_arn = (f"arn:{partition}:securityhub:{region}:{account}:"
                             f"subscription/pci-dss/v/3.2.1")
-    LOGGER.info(f"ARN: {PCI_STANDARD_ARN}")
+    LOGGER.info(f"ARN: {pci_standard_arn}")
     # Check for Enabled Standards
     aws_standard_enabled = False
     cis_standard_enabled = False
@@ -242,11 +251,11 @@ def process_security_standards(sh_client, partition, region, account):
     LOGGER.info(f"Account {account} in {region}. "
                 f"Enabled Standards: {enabled_standards}")
     for item in enabled_standards["StandardsSubscriptions"]:
-        if AWS_STANDARD_ARN in item["StandardsArn"]:
+        if aws_standard_arn in item["StandardsArn"]:
             aws_standard_enabled = True
-        if CIS_STANDARD_ARN in item["StandardsArn"]:
+        if cis_standard_arn in item["StandardsArn"]:
             cis_standard_enabled = True
-        if PCI_STANDARD_ARN in item["StandardsArn"]:
+        if pci_standard_arn in item["StandardsArn"]:
             pci_standard_enabled = True
     # Enable AWS Standard
     if os.environ['aws_standard'] == 'Yes':
@@ -255,15 +264,19 @@ def process_security_standards(sh_client, partition, region, account):
                         f"Security Standard is already enabled in Account "
                         f"{account} in {region}")
         else:
-            sh_client.batch_enable_standards(
-                StandardsSubscriptionRequests=[
-                    {
-                        'StandardsArn': AWS_STANDARD_ARN
-                    }
-                ])
-            LOGGER.info(f"Enabled AWS Foundational Security Best Practices "
-                        f"v1.0.0 Security Standard in Account {account} in "
-                        f"{region}")
+            try:
+                sh_client.batch_enable_standards(
+                    StandardsSubscriptionRequests=[
+                        {
+                            'StandardsArn': aws_standard_arn
+                        }
+                    ])
+                LOGGER.info(f"Enabled AWS Foundational Security Best Practices "
+                            f"v1.0.0 Security Standard in Account {account} in "
+                            f"{region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to enable AWS Foundational Security Best Practices v1.0.0 Security Standard in"
+                            f"Account {account} in {region}")
     # Disable AWS Standard
     else:
         if not aws_standard_enabled:
@@ -271,11 +284,15 @@ def process_security_standards(sh_client, partition, region, account):
                         f"Security Standard is already disabled in Account "
                         f"{account} in {region}")
         else:
-            sh_client.batch_disable_standards(
-                StandardsSubscriptionArns=[AWS_SUBSCRIPTION_ARN])
-            LOGGER.info(f"Disabled AWS Foundational Security Best Practices "
-                        f"v1.0.0 Security Standard in Account {account} in "
-                        f"{region}")
+            try:
+                sh_client.batch_disable_standards(
+                    StandardsSubscriptionArns=[aws_subscription_arn])
+                LOGGER.info(f"Disabled AWS Foundational Security Best Practices "
+                            f"v1.0.0 Security Standard in Account {account} in "
+                            f"{region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to disable AWS Foundational Security Best Practices v1.0.0 Security Standard in"
+                            f"Account {account} in {region}")
     # Enable CIS Standard
     if os.environ['cis_standard'] == 'Yes':
         if cis_standard_enabled:
@@ -283,14 +300,18 @@ def process_security_standards(sh_client, partition, region, account):
                         f"Standard is already enabled in Account {account} "
                         f"in {region}")
         else:
-            sh_client.batch_enable_standards(
-                StandardsSubscriptionRequests=[
-                    {
-                        'StandardsArn': CIS_STANDARD_ARN
-                    }
-                        ])
-            LOGGER.info(f"Enabled CIS AWS Foundations Benchmark v1.2.0 "
-                        f"Security Standard in Account {account} in {region}")
+            try:
+                sh_client.batch_enable_standards(
+                    StandardsSubscriptionRequests=[
+                        {
+                            'StandardsArn': cis_standard_arn
+                        }
+                            ])
+                LOGGER.info(f"Enabled CIS AWS Foundations Benchmark v1.2.0 "
+                            f"Security Standard in Account {account} in {region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to enable CIS AWS Foundations Benchmark v1.2.0 "
+                            f"Security Standard in Account {account} in {region}")
     # Disable CIS Standard
     else:
         if not cis_standard_enabled:
@@ -298,37 +319,48 @@ def process_security_standards(sh_client, partition, region, account):
                         f"Standard is already disabled in Account {account} "
                         f"in {region}")
         else:
-            sh_client.batch_disable_standards(
-                StandardsSubscriptionArns=[CIS_SUBSCRIPTION_ARN])
-            LOGGER.info(f"Disabled CIS AWS Foundations Benchmark v1.2.0 "
-                        f"Security Standard in Account {account} in {region}")
+            try:
+                sh_client.batch_disable_standards(
+                    StandardsSubscriptionArns=[cis_subscription_arn])
+                LOGGER.info(f"Disabled CIS AWS Foundations Benchmark v1.2.0 "
+                            f"Security Standard in Account {account} in {region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to disable CIS AWS Foundations Benchmark v1.2.0 "
+                            f"Security Standard in Account {account} in {region}")
     # Enable PCI Standard
     if os.environ['pci_standard'] == 'Yes':
         if pci_standard_enabled:
             LOGGER.info(f"PCI DSS v3.2.1 Security Standard is already "
                         f"enabled in Account {account} in {region}")
         else:
-            sh_client.batch_enable_standards(
-                StandardsSubscriptionRequests=[
-                    {
-                        'StandardsArn': PCI_STANDARD_ARN
-                    }
-                ])
-            LOGGER.info(f"Enabled PCI DSS v3.2.1 Security Standard "
-                        f"in Account {account} in {region}")
+            try:
+                sh_client.batch_enable_standards(
+                    StandardsSubscriptionRequests=[
+                        {
+                            'StandardsArn': pci_standard_arn
+                        }
+                    ])
+                LOGGER.info(f"Enabled PCI DSS v3.2.1 Security Standard "
+                            f"in Account {account} in {region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to enable PCI DSS v3.2.1 Security Standard "
+                            f"in Account {account} in {region}")
     # Disable PCI Standard
     else:
         if not pci_standard_enabled:
             LOGGER.info(f"PCI DSS v3.2.1 Security Standard is already "
                         f"disabled in Account {account} in {region}")
         else:
-            sh_client.batch_disable_standards(
-                StandardsSubscriptionArns=[PCI_SUBSCRIPTION_ARN])
-            LOGGER.info(f"Disabled PCI DSS v3.2.1 Security Standard "
-                        f"in Account {account} in {region}")
+            try:
+                sh_client.batch_disable_standards(
+                    StandardsSubscriptionArns=[pci_subscription_arn])
+                LOGGER.info(f"Disabled PCI DSS v3.2.1 Security Standard "
+                            f"in Account {account} in {region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to disablee PCI DSS v3.2.1 Security Standard "
+                            f"in Account {account} in {region}")
 
-
-def get_ct_regions(session):
+def get_ct_regions(ct_session):
     # This is a hack to find the control tower supported regions, as there
     # is no API for it right now it enumerates the
     # AWSControlTowerBP-BASELINE-CLOUDWATCH CloudFormation StackSet and finds
@@ -336,18 +368,18 @@ def get_ct_regions(session):
     # It doesn't have to evaluate enabled_regions as only enabled regions
     # will/can have stacks deployed
     # TODO this only works if the SecurityHub Enabler stack is deployed in the
-    # Control Tower installation region!  Otherwise defaults to intial Control
+    # Control Tower installation region!  Otherwise defaults to initial Control
     # Tower regions.
-    cf = session.client('cloudformation')
+    cf = ct_session.client('cloudformation')
     region_set = set()
     try:
         stacks = cf.list_stack_instances(
             StackSetName='AWSControlTowerBP-BASELINE-CLOUDWATCH')
         for stack in stacks['Summaries']:
             region_set.add(stack['Region'])
-    except:
+    except Exception as e:
         LOGGER.warning('Control Tower StackSet not found in this region')
-        region_set={'us-east-1','us-west-2','eu-west-1','eu-central-1'}
+        region_set = {'us-east-1', 'us-west-2', 'eu-west-1', 'eu-central-1'}
     LOGGER.info(f"Control Tower Regions: {list(region_set)}")
     return list(region_set)
 
@@ -375,7 +407,7 @@ def disable_master(master_session, role, securityhub_regions, partition):
         try:
             sh_master_client.disable_security_hub()
             LOGGER.info(f"Disabled SecurityHub in Master Account in {region}")
-        except Exception:
+        except Exception as e:
             LOGGER.info(f"SecurityHub already Disable in Master Account "
                         f"in {region}")
     return
@@ -389,10 +421,12 @@ def enable_master(master_session, securityhub_regions, partition):
         # Ensure SecurityHub is Enabled in the Master Account
         try:
             sh_master_client.get_findings()
-        except Exception:
+        except Exception as e:
             LOGGER.info(f"SecurityHub not currently Enabled on Master Account "
                         f"{master_account} in {region}. Enabling it.")
-            sh_master_client.enable_security_hub()
+            sh_master_client.enable_security_hub(
+                EnableDefaultStandards=False
+            )
         else:
             LOGGER.info(f"SecurityHub already Enabled in Master Account "
                         f"{master_account} in {region}")
@@ -403,6 +437,7 @@ def enable_master(master_session, securityhub_regions, partition):
 
 
 def lambda_handler(event, context):
+    global master_invitation
     LOGGER.info(f"REQUEST RECEIVED: {json.dumps(event, default=str)}")
     partition = context.invoked_function_arn.split(":")[1]
     master_account_id = os.environ['sh_master_account']
@@ -428,8 +463,8 @@ def lambda_handler(event, context):
                 securityhub_regions,
                 partition)
         LOGGER.info(f"Sending Custom Resource Response")
-        responseData = {}
-        send(event, context, "SUCCESS", responseData)
+        response_data = {}
+        send(event, context, "SUCCESS", response_data)
         if action == "Delete":
             # Exit on delete so it doesn't re-enable existing accounts
             raise SystemExit()
@@ -440,20 +475,20 @@ def lambda_handler(event, context):
     # Checks if Function was called by SNS
     if 'Records' in event:
         message = event['Records'][0]['Sns']['Message']
-        jsonmessage = json.loads(message)
-        LOGGER.info(f"SNS message: {json.dumps(jsonmessage, default=str)}")
-        accountid = jsonmessage['AccountId']
-        email = jsonmessage['Email']
+        json_message = json.loads(message)
+        LOGGER.info(f"SNS message: {json.dumps(json_message, default=str)}")
+        accountid = json_message['AccountId']
+        email = json_message['Email']
         aws_account_dict.update({accountid: email})
-        action = jsonmessage['Action']
+        action = json_message['Action']
     # Checks if function triggered by Control Tower Lifecycle Event,
     # testing in multiple steps to ensure invalid values
     # short-circuit it instead of failing
     elif ('detail' in event) and (
         'eventName' in event['detail']) and (
             event['detail']['eventName'] == 'CreateManagedAccount'):
-        servicedetail = event['detail']['serviceEventDetails']
-        status = servicedetail['createManagedAccountStatus']
+        service_detail = event['detail']['serviceEventDetails']
+        status = service_detail['createManagedAccountStatus']
         LOGGER.info(f"Control Tower Event: CreateManagedAccount {status}")
         accountid = status['account']['accountId']
         email = session.client('organizations').describe_account(
@@ -465,7 +500,7 @@ def lambda_handler(event, context):
         # used to fan out the requests to avoid function timeout if too many
         # accounts
         aws_account_dict = get_account_list()
-        snsclient = session.client('sns', region_name=os.environ['AWS_REGION'])
+        sns_client = session.client('sns', region_name=os.environ['AWS_REGION'])
         for accountid, email in aws_account_dict.items():
             sns_message = {
                 'AccountId': accountid,
@@ -473,7 +508,7 @@ def lambda_handler(event, context):
                 'Action': action
             }
             LOGGER.info(f"Publishing to configure Account {accountid}")
-            snsclient.publish(
+            sns_client.publish(
                 TopicArn=os.environ['topic'], Message=json.dumps(sns_message))
         return
     # Ensure the Security Hub Master is still enabled
@@ -506,12 +541,12 @@ def lambda_handler(event, context):
                         try:
                             sh_master_client.disassociate_members(
                                 AccountIds=[account])
-                        except Exception:
+                        except Exception as e:
                             continue
                         try:
                             sh_master_client.delete_members(
                                 AccountIds=[account])
-                        except Exception:
+                        except Exception as e:
                             continue
                 else:
                     LOGGER.warning(f"Account {account} exists, but not "
@@ -523,12 +558,12 @@ def lambda_handler(event, context):
                     try:
                         sh_master_client.disassociate_members(
                             AccountIds=[account])
-                    except Exception:
+                    except Exception as e:
                         continue
                     try:
                         sh_master_client.delete_members(
                             AccountIds=[account])
-                    except Exception:
+                    except Exception as e:
                         continue
             try:
                 sh_member_client.get_findings()
@@ -550,7 +585,7 @@ def lambda_handler(event, context):
                                 f"{account} in {aws_region}")
                     try:
                         sh_member_client.disable_security_hub()
-                    except Exception:
+                    except Exception as e:
                         continue
             if action != 'Delete':
                 process_security_standards(sh_member_client, partition,

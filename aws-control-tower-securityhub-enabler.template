@@ -72,6 +72,7 @@ Parameters:
     AllowedValues:
       - "Yes"
       - "No"
+
 Conditions:
   ComplianceFrequencySingleDay: !Equals
     - !Ref 'ComplianceFrequency'
@@ -136,6 +137,7 @@ Resources:
           - Effect: Allow
             Action:
               - 'iam:CreateServiceLinkedRole'
+              - 'ec2:describeRegions'
               - 'securityhub:AcceptInvitation'
               - 'securityhub:BatchEnableStandards'
               - 'securityhub:BatchDisableStandards'
@@ -184,6 +186,7 @@ Resources:
             aws_standard: !Ref AWSStandard
             cis_standard: !Ref CISStandard
             pci_standard: !Ref PCIStandard
+            log_level: "INFO"
 
   SecurityHubEnablerTopic:
     Type: AWS::SNS::Topic

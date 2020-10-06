@@ -424,9 +424,12 @@ def enable_master(master_session, securityhub_regions, partition):
         except Exception as e:
             LOGGER.info(f"SecurityHub not currently Enabled on Master Account "
                         f"{master_account} in {region}. Enabling it.")
-            sh_master_client.enable_security_hub(
-                EnableDefaultStandards=False
-            )
+            try:
+                sh_master_client.enable_security_hub(
+                    EnableDefaultStandards=False
+                )
+            except:
+                LOGGER.error(f"Failed to enable SecurityHub in {region} or {master_account}")
         else:
             LOGGER.info(f"SecurityHub already Enabled in Master Account "
                         f"{master_account} in {region}")

@@ -8,8 +8,8 @@
 
 remove-item -path .package,securityhub_enabler.zip -recurse -force *>$NULL
 new-item -path . -Name .package -ItemType "directory" >$NULL
-pip3 install --target .package --requirement requirements.txt
-pushd .package >$NULL
-compress-archive -Path .\* -DestinationPath ..\securityhub_enabler.zip
-popd >$NULL
+# pip3 install --target .package --requirement requirements.txt
+# pushd .package >$NULL
+# compress-archive -Path .\* -DestinationPath ..\securityhub_enabler.zip
+# popd >$NULL
 compress-archive -Path securityhub_enabler.py -Update -DestinationPath securityhub_enabler.zip

@@ -1,3 +1,7 @@
+# Important Update
+
+As of Nov 23, 2020, AWS Security Hub integrates with AWS Organzations and that integration is a less complex way to enable Security Hub for your Control Tower environment than this automation.  Please review it [here](https://aws.amazon.com/about-aws/whats-new/2020/11/aws-security-hub-integrates-with-aws-organizations-for-simplified-security-posture-management/) and see if it meets your needs before investing in the effort to deploy this. 
+
 # Centralize SecurityHub
 
 Installing this Customization will enable Security Hub in all Control Tower managed accounts, with the Audit account acting as the default Security Hub Master.

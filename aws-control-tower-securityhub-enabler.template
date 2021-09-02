@@ -6,7 +6,7 @@ Description: Creates an SNS topic and Lambda function to enable SecurityHub in t
 Parameters:
   SecurityAccountId:
     Type: String
-    Description: Which account will be the SecurityHub Master?  Enter the AWS account ID. (This is generally the AWS Control Tower Audit account)
+    Description: Which account will be the SecurityHub Admin account?  Enter the AWS account ID. (This is generally the AWS Control Tower Audit account)
     AllowedPattern: '^[0-9]{12}$'
     ConstraintDescription: The Security Account ID must be a 12 character string.
     MinLength: 12
@@ -139,9 +139,11 @@ Resources:
               - 'iam:CreateServiceLinkedRole'
               - 'ec2:describeRegions'
               - 'securityhub:AcceptInvitation'
+              - 'securityhub:AcceptAdministratorInvitation'
               - 'securityhub:BatchEnableStandards'
               - 'securityhub:BatchDisableStandards'
               - 'securityhub:CreateMembers'
+              - 'securityhub:DisassociateFromAdministratorAccount'
               - 'securityhub:DisassociateMembers'
               - 'securityhub:DisableSecurityHub'
               - 'securityhub:DeleteMembers'
@@ -180,13 +182,13 @@ Resources:
             ou_filter: !Ref OUFilter
             region_filter: !Ref RegionFilter
             assume_role: !Sub ${RoleToAssume}
-            ct_master_account: !Sub ${AWS::AccountId}
-            sh_master_account: !Sub ${SecurityAccountId}
+            ct_admin_account: !Sub ${AWS::AccountId}
+            sh_admin_account: !Sub ${SecurityAccountId}
             topic: !Ref SecurityHubEnablerTopic
             aws_standard: !Ref AWSStandard
             cis_standard: !Ref CISStandard
             pci_standard: !Ref PCIStandard
-            log_level: "INFO"
+            log_level: "ERROR"
 
   SecurityHubEnablerTopic:
     Type: AWS::SNS::Topic

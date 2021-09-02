@@ -22,7 +22,7 @@ This script orchestrates the enablement and centralization of SecurityHub
 across an enterprise of AWS accounts.
 It takes in a list of AWS Account Numbers, iterates through each account and
 region to enable SecurityHub.
-It creates each account as a Member in the SecurityHub Master account.
+It creates each account as a Member in the SecurityHub Admin account.
 It invites and accepts the invite for each Member account.
 The Security Hub automation is based on the scripts published at
 https://github.com/awslabs/aws-securityhub-multiaccount-scripts
@@ -91,7 +91,11 @@ def get_enabled_regions(region_session, regions):
     """
     enabled_regions = []
     for region in regions:
-        sts_client = region_session.client('sts', region_name=region)
+        sts_client = region_session.client(
+            'sts',
+            endpoint_url=f"https://sts.{region}.amazonaws.com",
+            region_name=region
+            )
         try:
             sts_client.get_caller_identity()
             enabled_regions.append(region)
@@ -164,7 +168,11 @@ def assume_role(aws_account_number, role_name):
     :param role_name: Role to assume in target account
     :return: Session object for the specified AWS Account and Region
     """
-    sts_client = boto3.client('sts')
+    sts_client = boto3.client(
+        'sts',
+        region_name=os.environ['AWS_REGION'],
+        endpoint_url=f"https://sts.{os.environ['AWS_REGION']}.amazonaws.com"
+        )
     partition = sts_client.get_caller_identity()['Arn'].split(":")[1]
     current_account = sts_client.get_caller_identity()['Arn'].split(":")[4]
     if aws_account_number == current_account:
@@ -185,15 +193,19 @@ def assume_role(aws_account_number, role_name):
         return sts_session
 
 
-def get_master_members(master_session, aws_region):
+def get_admin_members(admin_session, aws_region):
     """
-    Returns a list of current members of the SecurityHub master account
-    :param master_session: boto3 ct_session object for creating clients
-    :param aws_region: AWS Region of the SecurityHub master account
+    Returns a list of current members of the SecurityHub admin account
+    :param admin_session: boto3 ct_session object for creating clients
+    :param aws_region: AWS Region of the SecurityHub admin account
     :return: dict of AwsAccountId:MemberStatus
     """
     member_dict = dict()
-    sh_client = master_session.client('securityhub', region_name=aws_region)
+    sh_client = admin_session.client(
+        'securityhub',
+        endpoint_url=f"https://securityhub.{aws_region}.amazonaws.com",
+        region_name=aws_region
+        )
     # Need to paginate and iterate over results
     paginator = sh_client.get_paginator('list_members')
     operation_parameters = {
@@ -208,7 +220,7 @@ def get_master_members(master_session, aws_region):
                         member['AccountId']: member['MemberStatus']
                     }
                 )
-    LOGGER.info(f"Members of SecurityHub Master Account: {member_dict}")
+    LOGGER.info(f"Members of SecurityHub Admin Account: {member_dict}")
     return member_dict
 
 
@@ -384,67 +396,81 @@ def get_ct_regions(ct_session):
     return list(region_set)
 
 
-def disable_master(master_session, role, securityhub_regions, partition):
+def disable_admin(admin_session, role, securityhub_regions, partition):
     for region in securityhub_regions:
-        sh_master_client = master_session.client(
-            'securityhub', region_name=region)
-        master_members = get_master_members(master_session, region)
+        sh_admin_client = admin_session.client(
+            'securityhub',
+            endpoint_url=f"https://securityhub.{region}.amazonaws.com",
+            region_name=region
+            )
+        admin_members = get_admin_members(admin_session, region)
         member_accounts = []
-        for member in master_members:
+        for member in admin_members:
             member_accounts.append(member)
             member_session = assume_role(member, role)
             member_client = member_session.client(
-                'securityhub', region_name=region)
-            member_client.disable_security_hub()
-            LOGGER.info(f"Disabled SecurityHub in member Account {member} "
-                        f"in {region}")
-        sh_master_client.disassociate_members(AccountIds=member_accounts)
+                'securityhub',
+                endpoint_url=f"https://securityhub.{region}.amazonaws.com",
+                region_name=region
+                )
+            try:
+                member_client.disassociate_from_administrator_account()
+            except Exception as e:
+                LOGGER.warning(f"Dissassociating member {member} from Security Hub Admin in {region} failed")
+            try:
+                member_client.disable_security_hub()
+                LOGGER.info(f"Disabled SecurityHub in member account {member} in {region}")
+            except Exception as e:
+                LOGGER.warning(f"Failed to disable SecurityHub in member account {member} in {region}")
+        sh_admin_client.disassociate_members(AccountIds=member_accounts)
         LOGGER.info(f"Disassociated Member Accounts {member_accounts} "
-                    f"from the Master Account in {region}")
-        sh_master_client.delete_members(AccountIds=member_accounts)
+                    f"from the Admin Account in {region}")
+        sh_admin_client.delete_members(AccountIds=member_accounts)
         LOGGER.info(f"Deleted Member Accounts {member_accounts} "
-                    f"from the Master Account in {region}")
+                    f"from the Admin Account in {region}")
         try:
-            sh_master_client.disable_security_hub()
-            LOGGER.info(f"Disabled SecurityHub in Master Account in {region}")
+            sh_admin_client.disable_security_hub()
+            LOGGER.info(f"Disabled SecurityHub in Admin Account in {region}")
         except Exception as e:
-            LOGGER.info(f"SecurityHub already Disable in Master Account "
+            LOGGER.info(f"SecurityHub already Disabled in Admin Account "
                         f"in {region}")
     return
 
 
-def enable_master(master_session, securityhub_regions, partition):
-    master_account = os.environ['sh_master_account']
+def enable_admin(admin_session, securityhub_regions, partition):
+    admin_account = os.environ['sh_admin_account']
     for region in securityhub_regions:
-        sh_master_client = master_session.client(
-            'securityhub', region_name=region)
-        # Ensure SecurityHub is Enabled in the Master Account
+        sh_admin_client = admin_session.client(
+            'securityhub',
+            endpoint_url=f"https://securityhub.{region}.amazonaws.com",
+            region_name=region
+            )
+        # Ensure SecurityHub is Enabled in the Admin Account
         try:
-            sh_master_client.get_findings()
+            sh_admin_client.get_findings()
         except Exception as e:
-            LOGGER.info(f"SecurityHub not currently Enabled on Master Account "
-                        f"{master_account} in {region}. Enabling it.")
+            LOGGER.info(f"SecurityHub not currently Enabled on Admin Account "
+                        f"{admin_account} in {region}. Enabling it.")
             try:
-                sh_master_client.enable_security_hub(
+                sh_admin_client.enable_security_hub(
                     EnableDefaultStandards=False
                 )
             except:
-                LOGGER.error(f"Failed to enable SecurityHub in {region} or {master_account}")
+                LOGGER.error(f"Failed to enable SecurityHub in {region} or {admin_account}")
         else:
-            LOGGER.info(f"SecurityHub already Enabled in Master Account "
-                        f"{master_account} in {region}")
+            LOGGER.info(f"SecurityHub already Enabled in Admin Account "
+                        f"{admin_account} in {region}")
         # Enable Security Standards
-        process_security_standards(sh_master_client, partition, region,
-                                   master_account)
+        process_security_standards(sh_admin_client, partition, region,
+                                   admin_account)
     return
 
 
 def lambda_handler(event, context):
-    global master_invitation
     LOGGER.info(f"REQUEST RECEIVED: {json.dumps(event, default=str)}")
     partition = context.invoked_function_arn.split(":")[1]
-    master_account_id = os.environ['sh_master_account']
-    master_session = assume_role(master_account_id, os.environ['assume_role'])
+    admin_account_id = os.environ['sh_admin_account']
+    admin_session = assume_role(admin_account_id, os.environ['assume_role'])
     # Regions to Deploy
     if os.environ['region_filter'] == 'SecurityHub':
         securityhub_regions = get_enabled_regions(
@@ -458,10 +484,10 @@ def lambda_handler(event, context):
             event['RequestType'] == "Update"):
         action = event['RequestType']
         if action == "Create":
-            enable_master(master_session, securityhub_regions, partition)
+            enable_admin(admin_session, securityhub_regions, partition)
         if action == "Delete":
-            disable_master(
-                master_session,
+            disable_admin(
+                admin_session,
                 os.environ['assume_role'],
                 securityhub_regions,
                 partition)
@@ -514,13 +540,13 @@ def lambda_handler(event, context):
             sns_client.publish(
                 TopicArn=os.environ['topic'], Message=json.dumps(sns_message))
         return
-    # Ensure the Security Hub Master is still enabled
-    enable_master(master_session, securityhub_regions, partition)
+    # Ensure the Security Hub Admin is still enabled
+    enable_admin(admin_session, securityhub_regions, partition)
     # Processing Accounts
     LOGGER.info(f"Processing: {json.dumps(aws_account_dict)}")
     for account in aws_account_dict.keys():
         email_address = aws_account_dict[account]
-        if account == master_account_id:
+        if account == admin_account_id:
             LOGGER.info(f"Account {account} cannot become a member of itself")
             continue
         LOGGER.debug(f"Working on SecurityHub on Account {account} in \
@@ -530,41 +556,47 @@ def lambda_handler(event, context):
         # Process Regions
         for aws_region in securityhub_regions:
             sh_member_client = member_session.client(
-                'securityhub', region_name=aws_region)
-            sh_master_client = master_session.client(
-                'securityhub', region_name=aws_region)
-            master_members = get_master_members(master_session, aws_region)
+                'securityhub',
+                endpoint_url=f"https://securityhub.{aws_region}.amazonaws.com",
+                region_name=aws_region
+                )
+            sh_admin_client = admin_session.client(
+                'securityhub',
+                endpoint_url=f"https://securityhub.{aws_region}.amazonaws.com",
+                region_name=aws_region
+                )
+            admin_members = get_admin_members(admin_session, aws_region)
             LOGGER.info(f"Beginning {aws_region} in Account {account}")
-            if account in master_members:
-                if master_members[account] == 'Associated':
+            if account in admin_members:
+                if admin_members[account] == 'Associated':
                     LOGGER.info(f"Account {account} is already associated "
-                                f"with Master Account {master_account_id} in "
+                                f"with Admin Account {admin_account_id} in "
                                 f"{aws_region}")
                     if action == 'Delete':
                         try:
-                            sh_master_client.disassociate_members(
+                            sh_admin_client.disassociate_members(
                                 AccountIds=[account])
                         except Exception as e:
                             continue
                         try:
-                            sh_master_client.delete_members(
+                            sh_admin_client.delete_members(
                                 AccountIds=[account])
                         except Exception as e:
                             continue
                 else:
                     LOGGER.warning(f"Account {account} exists, but not "
-                                   f"associated to Master Account "
-                                   f"{master_account_id} in {aws_region}")
+                                   f"associated to Admin Account "
+                                   f"{admin_account_id} in {aws_region}")
                     LOGGER.info(f"Disassociating Account {account} from "
-                                f"Master Account {master_account_id} in "
+                                f"Admin Account {admin_account_id} in "
                                 f"{aws_region}")
                     try:
-                        sh_master_client.disassociate_members(
+                        sh_admin_client.disassociate_members(
                             AccountIds=[account])
                     except Exception as e:
                         continue
                     try:
-                        sh_master_client.delete_members(
+                        sh_admin_client.delete_members(
                             AccountIds=[account])
                     except Exception as e:
                         continue
@@ -595,7 +627,7 @@ def lambda_handler(event, context):
                                            aws_region, account)
                 LOGGER.info(f"Creating member for Account {account} and "
                             f"Email, {email_address} in {aws_region}")
-                member_response = sh_master_client.create_members(
+                member_response = sh_admin_client.create_members(
                     AccountDetails=[{
                         'AccountId': account,
                         'Email': email_address
@@ -608,27 +640,27 @@ def lambda_handler(event, context):
                     })
                     continue
                 LOGGER.info(f"Inviting Account {account} in {aws_region}")
-                sh_master_client.invite_members(AccountIds=[account])
+                sh_admin_client.invite_members(AccountIds=[account])
             # go through each invitation (hopefully only 1)
-            # and pull the one matching the Security Master Account ID
+            # and pull the one matching the Security Admin Account ID
             try:
                 paginator = sh_member_client.get_paginator(
                     'list_invitations')
                 invitation_iterator = paginator.paginate()
                 for invitation in invitation_iterator:
-                    master_invitation = next(
+                    admin_invitation = next(
                         item for item in invitation['Invitations'] if
-                        item["AccountId"] == master_account_id)
+                        item["AccountId"] == admin_account_id)
                 LOGGER.info(f"Accepting invitation on Account {account} "
-                            f"from Master Account {master_account_id} in "
+                            f"from Admin Account {admin_account_id} in "
                             f"{aws_region}")
-                sh_member_client.accept_invitation(
-                    MasterId=master_account_id,
-                    InvitationId=master_invitation['InvitationId'])
+                sh_member_client.accept_administrator_invitation(
+                    AdministratorId=admin_account_id,
+                    InvitationId=admin_invitation['InvitationId'])
             except Exception as e:
                 LOGGER.warning(f"Account {account} could not accept "
-                               f"invitation from Master Account "
-                               f"{master_account_id} in {aws_region}")
+                               f"invitation from Admin Account "
+                               f"{admin_account_id} in {aws_region}")
                 LOGGER.warning(e)
 
         if len(failed_invitations) > 0:

@@ -109,6 +109,24 @@ def get_enabled_regions(region_session, regions):
     LOGGER.info(f"Enabled Regions: {enabled_regions}")
     return enabled_regions
 
+def is_ct_account(account_id, org_client):
+    # Find Account OU to Test for CT Policies
+    parent = org_client.list_parents(
+        ChildId=account_id
+    )['Parents'][0]
+    # enumerate policies for the account so we can look for Control
+            # Tower SCPs
+    policies = org_client.list_policies_for_target(
+        TargetId=parent['Id'],
+        Filter="SERVICE_CONTROL_POLICY"
+    )
+    for policy in policies['Policies']:
+        if policy['Name'][:15] == 'aws-guardrails-':
+            # Found a CT account
+            return True
+    if parent['Type'] != 'ROOT':
+        return is_ct_account(parent['Id'], org_client)
+    return False
 
 def get_account_list():
     """
@@ -137,20 +155,7 @@ def get_account_list():
     for account in accounts['Accounts']:
         ct_account = False
         if ct_only:
-            # Find Account OU to Test for CT Policies
-            parent = org_client.list_parents(
-                ChildId=account['Id']
-            )['Parents'][0]['Id']
-            # enumerate policies for the account so we can look for Control
-            # Tower SCPs
-            policies = org_client.list_policies_for_target(
-                TargetId=parent,
-                Filter="SERVICE_CONTROL_POLICY"
-            )
-            for policy in policies['Policies']:
-                if policy['Name'][:15] == 'aws-guardrails-':
-                    # Found a CT account so setting flag
-                    ct_account = True
+            ct_account = is_ct_account(account['Id'], org_client=org_client)
         # Store Accounts Matching ou filter for active accounts in a dict
         if ct_account == ct_only and account['Status'] == 'ACTIVE':
             account_id = account['Id']

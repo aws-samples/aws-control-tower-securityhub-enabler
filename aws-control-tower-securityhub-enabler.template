@@ -72,6 +72,13 @@ Parameters:
     AllowedValues:
       - "Yes"
       - "No"
+  ProwlerProduct:
+    Type: String
+    Description: Should Security Hub enable the Prowler Product integration?
+    Default: "Yes"
+    AllowedValues:
+      - "Yes"
+      - "No"
 
 Conditions:
   ComplianceFrequencySingleDay: !Equals
@@ -188,6 +195,7 @@ Resources:
             aws_standard: !Ref AWSStandard
             cis_standard: !Ref CISStandard
             pci_standard: !Ref PCIStandard
+            prowler_product: !Ref ProwlerProduct
             log_level: "ERROR"
 
   SecurityHubEnablerTopic:

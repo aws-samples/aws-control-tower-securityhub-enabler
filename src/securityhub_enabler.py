@@ -260,6 +260,12 @@ def process_security_standards(sh_client, partition, region, account):
     pci_subscription_arn = (f"arn:{partition}:securityhub:{region}:{account}:"
                             f"subscription/pci-dss/v/3.2.1")
     LOGGER.info(f"ARN: {pci_standard_arn}")
+    
+    # Prowler Product ARNs
+    prowler_product_arn = (f"arn:{partition}:securityhub:{region}::product/"
+                        f"prowler/prowler")
+    LOGGER.info(f"ARN: {prowler_product_arn}")
+
     # Check for Enabled Standards
     aws_standard_enabled = False
     cis_standard_enabled = False
@@ -274,6 +280,16 @@ def process_security_standards(sh_client, partition, region, account):
             cis_standard_enabled = True
         if pci_standard_arn in item["StandardsArn"]:
             pci_standard_enabled = True
+
+    # Check enabled products
+    prowler_product_enabled = False
+    enabled_products = sh_client.list_enabled_products_for_import()
+    LOGGER.info(f"Account {account} in {region}. "
+                f"Enabled Products: {enabled_products}")
+    for item in enabled_products["ProductSubscriptions"]:
+        if prowler_product_arn in item:
+            prowler_product_enabled = True
+    
     # Enable AWS Standard
     if os.environ['aws_standard'] == 'Yes':
         if aws_standard_enabled:
@@ -376,6 +392,36 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to disablee PCI DSS v3.2.1 Security Standard "
                             f"in Account {account} in {region}")
+    # Enable Prowler Product
+    if os.environ['prowler_product'] == 'Yes':
+        if prowler_product_enabled:
+            LOGGER.info(f"Prowler product integration is already "
+                        f"enabled in Account {account} in {region}")
+        else:
+            try:
+                sh_client.enable_import_findings_for_product(
+                    ProductArn=prowler_product_arn
+                )
+                LOGGER.info(f"Enabled Prowler product integration "
+                            f"in Account {account} in {region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to enable Prowler product integration "
+                            f"in Account {account} in {region}")
+    # Disable Prowler product
+    else:
+        if not prowler_product_enabled:
+            LOGGER.info(f"Prowler product integration is already "
+                        f"disabled in Account {account} in {region}")
+        else:
+            try:
+                sh_client.disable_import_findings_for_product(
+                    ProductSubscriptionArn=prowler_product_arn
+                )
+                LOGGER.info(f"Disabled Prowler product integration "
+                            f"in Account {account} in {region}")
+            except Exception as e:
+                LOGGER.info(f"Failed to disable Prowler product integration "
+                            f"in Account {account} in {region}")
 
 def get_ct_regions(ct_session):
     # This is a hack to find the control tower supported regions, as there
@@ -468,6 +514,7 @@ def enable_admin(admin_session, securityhub_regions, partition):
         # Enable Security Standards
         process_security_standards(sh_admin_client, partition, region,
                                    admin_account)
+        # TODO: Enable prowler partner integration
     return
 
 
@@ -630,6 +677,7 @@ def lambda_handler(event, context):
             if action != 'Delete':
                 process_security_standards(sh_member_client, partition,
                                            aws_region, account)
+                # TODO: Enable prowler partner integration
                 LOGGER.info(f"Creating member for Account {account} and "
                             f"Email, {email_address} in {aws_region}")
                 member_response = sh_admin_client.create_members(

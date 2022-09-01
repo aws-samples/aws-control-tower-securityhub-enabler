@@ -161,6 +161,9 @@ Resources:
               - 'securityhub:InviteMembers'
               - 'securityhub:ListInvitations'
               - 'securityhub:ListMembers'
+              - 'securityhub:ListEnabledProductsForImport'
+              - 'securityhub:DisableImportFindingsForProduct'
+              - 'securityhub:EnableImportFindingsForProduct'
             Resource: '*'
     Metadata:
       cfn_nag:

@@ -75,7 +75,7 @@ Parameters:
   ProwlerProduct:
     Type: String
     Description: Should Security Hub enable the Prowler Product integration?
-    Default: "Yes"
+    Default: "No"
     AllowedValues:
       - "Yes"
       - "No"

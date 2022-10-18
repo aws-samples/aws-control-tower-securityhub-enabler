@@ -61,7 +61,7 @@ Parameters:
   CISStandard:
     Type: String
     Description: Should Security Hub enable the CIS AWS Foundations Benchmark v1.2.0 Security Standard?
-    Default: "Yes"
+    Default: "No"
     AllowedValues:
       - "Yes"
       - "No"

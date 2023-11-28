@@ -201,7 +201,7 @@ Resources:
             topic: !Ref SecurityHubEnablerTopic
             aws_standard: !Ref AWSStandard
             cis_standard: !Ref CIS120Standard
-            cis140_standard: !Ref CIS140Standard
+            cis_140_standard: !Ref CIS140Standard
             nist_standard: !Ref NISTStandard
             pci_standard: !Ref PCIStandard
             log_level: "ERROR"

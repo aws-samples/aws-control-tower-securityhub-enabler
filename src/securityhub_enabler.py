@@ -255,7 +255,7 @@ def process_security_standards(sh_client, partition, region, account):
                             f"/v/1.2.0")
     LOGGER.info(f"ARN: {cis_standard_arn}")
     # CIS 1.4.0 Standard ARNs
-    cis_140_standard_arn = (f"arn:{partition}:securityhub:::ruleset/"
+    cis_140_standard_arn = (f"arn:{partition}:securityhub:{region}::standards/"
                         f"cis-aws-foundations-benchmark/v/1.4.0")
     cis_140_subscription_arn = (f"arn:{partition}:securityhub:{region}:{account}:"
                             f"subscription/cis-aws-foundations-benchmark"
@@ -313,6 +313,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to enable AWS Foundational Security Best Practices v1.0.0 Security Standard in"
                             f"Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Disable AWS Standard
     else:
         if not aws_standard_enabled:
@@ -329,6 +330,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to disable AWS Foundational Security Best Practices v1.0.0 Security Standard in"
                             f"Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Enable CIS Standard
     if os.environ['cis_standard'] == 'Yes':
         if cis_standard_enabled:
@@ -348,6 +350,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to enable CIS AWS Foundations Benchmark v1.2.0 "
                             f"Security Standard in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Disable CIS Standard
     else:
         if not cis_standard_enabled:
@@ -363,6 +366,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to disable CIS AWS Foundations Benchmark v1.2.0 "
                             f"Security Standard in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Enable CIS 140 Standard
     if os.environ['cis_140_standard'] == 'Yes':
         if cis_140_standard_enabled:
@@ -382,6 +386,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to enable CIS AWS Foundations Benchmark v1.4.0 "
                             f"Security Standard in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Disable CIS Standard
     else:
         if not cis_140_standard_enabled:
@@ -397,6 +402,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to disable CIS AWS Foundations Benchmark v1.4.0 "
                             f"Security Standard in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Enable NIST 800-53 Rev5 Standard
     if os.environ['nist_standard'] == 'Yes':
         if nist_standard_enabled:
@@ -415,6 +421,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to enable NIST 800-53 Rev 5 Security Standard "
                             f"in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Disable NIST Standard
     else:
         if not nist_standard_enabled:
@@ -429,6 +436,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to disable NIST 800-53 Rev 5 Security Standard "
                             f"in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Enable PCI Standard
     if os.environ['pci_standard'] == 'Yes':
         if pci_standard_enabled:
@@ -447,6 +455,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to enable PCI DSS v3.2.1 Security Standard "
                             f"in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
     # Disable PCI Standard
     else:
         if not pci_standard_enabled:
@@ -461,6 +470,7 @@ def process_security_standards(sh_client, partition, region, account):
             except Exception as e:
                 LOGGER.info(f"Failed to disablee PCI DSS v3.2.1 Security Standard "
                             f"in Account {account} in {region}")
+                LOGGER.debug(f"Error: {e}")
 
 def get_ct_regions(ct_session):
     # This is a hack to find the control tower supported regions, as there

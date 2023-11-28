@@ -58,16 +58,30 @@ Parameters:
     AllowedValues:
       - "Yes"
       - "No"
-  CISStandard:
+  CIS120Standard:
     Type: String
     Description: Should Security Hub enable the CIS AWS Foundations Benchmark v1.2.0 Security Standard?
     Default: "Yes"
     AllowedValues:
       - "Yes"
       - "No"
+  CIS140Standard:
+    Type: String
+    Description: Should Security Hub enable the CIS AWS Foundations Benchmark v1.4.0 Security Standard?
+    Default: "No"
+    AllowedValues:
+      - "Yes"
+      - "No"
   PCIStandard:
     Type: String
     Description: Should Security Hub enable the PCI DSS v3.2.1 Security Standard?
+    Default: "No"
+    AllowedValues:
+      - "Yes"
+      - "No"
+  NISTStandard:
+    Type: String
+    Description: Should Security Hub enable the NIST SP 800-53 Rev5 Security Standard?
     Default: "No"
     AllowedValues:
       - "Yes"
@@ -171,7 +185,7 @@ Resources:
       Code: 
         S3Bucket: !Ref S3SourceBucket
         S3Key: !Ref S3SourceKey
-      Runtime: "python3.8"
+      Runtime: "python3.10"
       MemorySize: 256
       Timeout: 900
       # ###################################################################
@@ -186,7 +200,9 @@ Resources:
             sh_admin_account: !Sub ${SecurityAccountId}
             topic: !Ref SecurityHubEnablerTopic
             aws_standard: !Ref AWSStandard
-            cis_standard: !Ref CISStandard
+            cis_standard: !Ref CIS120Standard
+            cis_140_standard: !Ref CIS140Standard
+            nist_standard: !Ref NISTStandard
             pci_standard: !Ref PCIStandard
             log_level: "ERROR"
 
